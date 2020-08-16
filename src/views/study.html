@@ -39,7 +39,7 @@
                             <option value="" disabled="" hidden="">Selecione uma opção</option>
 
                             {%for subject in subjects%}
-                            <option value="{{loop.index}}" {{"selected" if query.subject == loop.index}}>{{subject}}</option>
+                            <option value="{{loop.index - 1}}" {{"selected" if query.subject == loop.index}}>{{subject}}</option>
                             {%endfor%}
 
                         </select>
@@ -64,6 +64,12 @@
         </header>
 
         <main>
+
+            {% if proffys == ""%}
+
+            <p class="no-results">Nenhum proffesor encontrado com a sua pesquisa.</p>
+
+            {% else %}
 
             {%for proffy in proffys%}
 
@@ -90,8 +96,7 @@
 
             {%endfor%}
 
-
-
+            {% endif %}
 
         </main>
 
