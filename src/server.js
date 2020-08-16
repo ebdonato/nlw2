@@ -1,76 +1,93 @@
 const port = 5000
 const address = `http://localhost:${port}`
+const { subjects, weekdays, convertHoursToMinutes } = require("./utils/format")
+const database = require('./database/db')
 
-const proffys = [
-    {
-        name: "Diego Fernandes",
-        avatar: "https://avatars2.githubusercontent.com/u/2254731?s=460&amp;u=0ba16a79456c2f250e7579cb388fa18c5c2d7d65&amp;v=4",
-        whatsapp: "9898899998",
-        bio: "Entusiasta das melhores tecnologias de química avançada.<br><br>Apaixonado por explodir coisas em laboratório e por mudar a vida das pessoas através de experiências. Mais de 200.000 pessoas já passaram por uma das minhas explosões.",
-        subject: "0",
-        cost: 20,
-        weekday: [0],
-        time_from: [720],
-        time_to: [1220]
-    },
-    {
-        name: "Fulano de Tal",
-        avatar: "http://2.gravatar.com/avatar/95436a1e6147f1668b10d37547f7e930",
-        whatsapp: "9898899998",
-        bio: "Entusiasta das melhores tecnologias de química avançada.<br><br>Apaixonado por explodir coisas em laboratório e por mudar a vida das pessoas através de experiências. Mais de 200.000 pessoas já passaram por uma das minhas explosões.",
-        subject: "9",
-        cost: 30,
-        weekday: [1],
-        time_from: [720],
-        time_to: [1220]
-    }
-]
-
-const subjects = [
-    "Artes",
-    "Biologia",
-    "Ciências",
-    "Educação física",
-    "Física",
-    "Geografia",
-    "História",
-    "Matemática",
-    "Português",
-    "Química"
-]
-
-const weekdays = [
-    "Domingo",
-    "Segunda-feira",
-    "Terça-feira",
-    "Quarta-feira",
-    "Quinta-feira",
-    "Sexta-feira",
-    "Sábado"
-]
+// TODO: Por alguma razão está sempre returnando Proffys, mesmo quando não há buscas
 
 function pageToLoad(fileName, context) {
-    //return (req,res) => res.sendFile(__dirname + `/views/${fileName}`)
-    return (req,res) => {
+    return async (req, res) => {
         if (context) {
             context.query = req.query
         }
 
-        return res.render(fileName + ".html", context)}
+        if (!req.query.subject || !req.query.weekday || !req.query.time) {
+            return res.render(fileName + ".html", context)
+        } else {
+            const timeToMinute = convertHoursToMinutes(req.query.time)
+
+            const sqlQuery = `
+            SELECT classes.*, proffys.*
+            FROM proffys
+            JOIN classes ON (classes.proffy_id = proffys.id)
+            WHERE EXISTS (
+                SELECT class_schedules.*
+                FROM class_schedules
+                WHERE class_schedules.class_id = classes.id
+                AND class_schedules.weekday = ${req.query.weekday}
+                AND class_schedules.time_from <= ${timeToMinute}
+                AND class_schedules.time_to > ${timeToMinute}
+                )
+                And classes.subject = ${req.query.subject}
+                `
+
+            try {
+                const db = await database
+
+                context.proffys = await db.all(sqlQuery)
+
+                console.log(context.query)
+
+            } catch (error) {
+                console.log(error)
+            }
+
+            return res.render(fileName + ".html", context)
+        }
+    }
 }
 
-function pageReceiveData(fileName, context, redirect) {
-    return (req,res) => {
-        const data = req.query
+function saveClasses(redirect) {
+    return async (req, res) => {
+        const data = req.body
 
-        if(!Object.keys(data).length == 0) {
-            proffys.push(data)
-            if (redirect) {
-                return res.redirect(redirect)
-            }
+        const createProffy = require('./database/createProffy')
+
+        const proffyValue = {
+            name: data.name,
+            avatar: data.avatar,
+            whatsapp: data.whatsapp,
+            bio: data.bio
         }
 
-        return res.render(fileName + ".html", context)}
+        const classValue = {
+            subject: data.subject,
+            cost: data.cost,
+            //proffy_id
+        }
+
+        const classScheduleValues = data.weekday.map((weekday, index) => {
+            return {
+                weekday,
+                time_from: convertHoursToMinutes(data.time_from[index]),
+                time_to: convertHoursToMinutes(data.time_to[index])
+                //class_id
+
+            }
+        })
+
+        try {
+            const db = await database
+            await createProffy(db, { proffyValue, classValue, classScheduleValues })
+            const filterString =
+                `?subject=${data.subject}&weekday=${data.weekday[0]}&time=${data.time_from[0]}`
+            return res.redirect(redirect + filterString)
+        } catch (error) {
+            console.log(error)
+            return res.redirect("/")
+        }
+
+    }
 }
 
 const express = require('express')
@@ -83,10 +100,13 @@ nunjucks.configure('src/views', {
     noCache: true
 })
 
-server.use(express.static("public"))
+server
+    .use(express.static("public"))
+    .use(express.urlencoded({ extended: true }))
     .get("/", pageToLoad("index"))
-    .get("/study", pageToLoad("study", { proffys, subjects, weekdays }))
-    .get("/give-classes", pageReceiveData("give-classes", { subjects, weekdays }, "study"))
+    .get("/study", pageToLoad("study", { subjects, weekdays }))
+    .get("/give-classes", pageToLoad("give-classes", { subjects, weekdays }))
+    .post("/save-classes", saveClasses("study"))
     .listen(5000)
 
 console.log(address)
